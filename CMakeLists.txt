@@ -65,3 +65,11 @@ if (NEED_COMPILE_MOOON)
     add_subdirectory(libmooon/src)
 endif ()
 add_subdirectory(src)
+
+if (NEED_COMPILE_MOOON)
+    # CMAKE_INSTALL_PREFIX
+    install(
+        FILES ${MOOON_HOME}/CMake.common        
+        DESTINATION .
+    )
+endif ()
