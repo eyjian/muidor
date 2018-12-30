@@ -2,7 +2,7 @@
 
 # 3.2
 cmake_minimum_required(VERSION 2.8.11)
-project(mooon-uidor)
+project(muidor)
 
 # 让make时显示编译命令
 set(CMAKE_VERBOSE_MAKEFILE ON)

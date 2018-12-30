@@ -16,10 +16,10 @@
  *
  * Author: eyjian@qq.com or eyjian@gmail.com
  */
-#ifndef MOOON_UIDOR_PROTOCOL_H
-#define MOOON_UIDOR_PROTOCOL_H
+#ifndef MOOON_MUIDOR_PROTOCOL_H
+#define MOOON_MUIDOR_PROTOCOL_H
 #include "crc32.h"
-#include "mooon/uidor/uidor.h"
+#include "mooon/muidor/muidor.h"
 #include <mooon/net/inttypes.h>
 #include <mooon/utils/string_utils.h>
 namespace mooon {
@@ -114,4 +114,4 @@ struct MessageHead
 #pragma pack()
 
 } // namespace mooon {
-#endif // MOOON_UIDOR_PROTOCOL_H
+#endif // MOOON_MUIDOR_PROTOCOL_H
