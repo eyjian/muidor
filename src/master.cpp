@@ -52,7 +52,7 @@ STRING_ARG_DEFINE(db_host, "", "MySQL host to connect");
 INTEGER_ARG_DEFINE(uint16_t, db_port, 3306, 1000, 65535, "MySQL port to connect");
 STRING_ARG_DEFINE(db_user, "root", "MySQL user");
 STRING_ARG_DEFINE(db_pass, "", "MySQL password");
-STRING_ARG_DEFINE(db_name, "", "MySQL database name");
+STRING_ARG_DEFINE(db_name, "munidor", "MySQL database name");
 
 // Label过期时长参数，所有节点的expire值必须保持相同，包括master节点和所有agent节点
 //
@@ -71,7 +71,7 @@ INTEGER_ARG_DEFINE(uint32_t, timeout, 3600, 1, 36000, "Timeout in seconds");
 ////////////////////////////////////////////////////////////////////////////////
 namespace mooon {
 
-// CREATE DATABASE IF NOT EXISTS unidor DEFAULT CHARSET utf8 COLLATE utf8_general_ci;
+// CREATE DATABASE IF NOT EXISTS munidor DEFAULT CHARSET utf8 COLLATE utf8_general_ci;
 
 /*
  * Label资源池表
