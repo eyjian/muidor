@@ -24,7 +24,9 @@
 #include <mooon/net/utils.h>
 #include <mooon/sys/atomic.h>
 #include <mooon/sys/close_helper.h>
+#include <mooon/sys/event.h>
 #include <mooon/sys/datetime_utils.h>
+#include <mooon/sys/lock.h>
 #include <mooon/sys/main_template.h>
 #include <mooon/sys/safe_logger.h>
 #include <mooon/sys/thread_engine.h>
@@ -137,6 +139,7 @@ private:
     bool parse_master_nodes();
     bool restore_sequence();
     bool store_sequence();
+    void inc_num_sequence(int n);
     uint32_t inc_sequence(uint16_t deta=1);
     uint64_t get_uniq_id(const struct MessageHead* request);
     void rent_label();
@@ -157,6 +160,8 @@ private:
 
 private:
     sys::CThreadEngine* _sync_thread;
+    sys::CEvent _event;
+    sys::CLock _lock;
     uint32_t _echo;
     std::vector<struct sockaddr_in> _masters_addr;
     net::CEpoller _epoller;
@@ -165,6 +170,7 @@ private:
     struct SeqBlock _seq_block;
     std::string _sequence_path;
     int _sequence_fd;
+    sys::CAtomic<int> _num_sequences; // 当前累计增加数，影响fsync的调用
     time_t _current_time; // 当前时间
     time_t _last_rent_time; // 最后一次向master发起rent_label的时间
     bool _io_error; // IO出错标记，将不能继续服务
@@ -194,7 +200,9 @@ extern "C" int main(int argc, char* argv[])
 
 CUidAgent::CUidAgent()
     : _sync_thread(NULL),
-      _echo(0), _udp_socket(NULL), _sequence_fd(-1), _current_time(0), _last_rent_time(0), _io_error(false),
+      _echo(0), _udp_socket(NULL),
+      _sequence_fd(-1), _num_sequences(0),
+      _current_time(0), _last_rent_time(0), _io_error(false),
       _old_seq(0), _old_hour(-1), _old_day(-1), _old_month(-1), _old_year(-1),
       _message_head(NULL)
 {
@@ -439,7 +447,11 @@ void CUidAgent::sync_thread()
 {
     while (!to_stop())
     {
-        sys::CUtils::millisleep(1000);
+        // Sleep 1s
+        {
+            sys::LockHelper<sys::CLock> lh(_lock);
+            _event.timed_wait(_lock, 1000);
+        }
 
         if (_sequence_fd>0 && -1==fdatasync(_sequence_fd))
         {
@@ -690,6 +702,19 @@ bool CUidAgent::store_sequence()
     }
 }
 
+void CUidAgent::inc_num_sequence(int n)
+{
+    if (n != -1)
+    {
+        ++_num_sequences;
+    }
+    if (-1==n || _num_sequences>=static_cast<int>(argument::steps->value()))
+    {
+        _event.signal();
+        _num_sequences = 0;
+    }
+}
+
 uint32_t CUidAgent::inc_sequence(uint16_t deta)
 {
     bool stored = true;
@@ -700,6 +725,7 @@ uint32_t CUidAgent::inc_sequence(uint16_t deta)
 	{
 	    MYLOG_DEBUG("seq_block.sequence=%u, sequence_start=%u, steps=%u\n", _seq_block.sequence, _sequence_start, argument::steps->value());
 	    stored = store_sequence();
+	    inc_num_sequence(-1);
 	}
 
 	if (stored)
@@ -713,6 +739,8 @@ uint32_t CUidAgent::inc_sequence(uint16_t deta)
                 MYLOG_INFO("sequence overflow: %u->%u\n", sequence, _seq_block.sequence);
                 sequence = _seq_block.sequence++; // 排除0，原因是返回0时被当作出错
             }
+
+            inc_num_sequence(1);
 	    }
 	    else
 	    {
@@ -721,12 +749,14 @@ uint32_t CUidAgent::inc_sequence(uint16_t deta)
 	    	{
 	    	    sequence = _seq_block.sequence;
 	    	    _seq_block.sequence += deta;
+	    	    inc_num_sequence(deta);
 	    	}
 	    	else
 	    	{
 	    	    sequence = 1;
 	    	    _seq_block.sequence = sequence + deta;
 	    	    MYLOG_INFO("Sequence overflow: %u->%u(%d)\n", sequence, _seq_block.sequence, (int)deta);
+	    	    inc_num_sequence(-1);
 	    	}
 	    }
 	}
