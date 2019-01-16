@@ -22,10 +22,12 @@
 #include <mooon/net/epoller.h>
 #include <mooon/net/udp_socket.h>
 #include <mooon/net/utils.h>
+#include <mooon/sys/atomic.h>
 #include <mooon/sys/close_helper.h>
 #include <mooon/sys/datetime_utils.h>
 #include <mooon/sys/main_template.h>
 #include <mooon/sys/safe_logger.h>
+#include <mooon/sys/thread_engine.h>
 #include <mooon/sys/utils.h>
 #include <mooon/utils/args_parser.h>
 #include <mooon/utils/string_utils.h>
@@ -113,18 +115,23 @@ struct SeqBlock
 };
 #pragma pack()
 
-class CUidAgent: public sys::IMainHelper
+class CUidAgent: public sys::CMainHelper
 {
 public:
     CUidAgent();
     ~CUidAgent();
 
 private:
-    virtual bool init(int argc, char* argv[]);
-    virtual bool run();
-    virtual void fini();
+    virtual bool on_init(int argc, char* argv[]);
+    virtual bool on_run();
+    virtual void on_fini();
 
 private:
+    virtual bool on_check_parameter();
+    virtual void on_terminated();
+
+private:
+    void sync_thread();
     std::string get_sequence_path() const;
     int get_label(bool asynchronous);
     bool parse_master_nodes();
@@ -149,6 +156,7 @@ private:
     int on_response_label();
 
 private:
+    sys::CThreadEngine* _sync_thread;
     uint32_t _echo;
     std::vector<struct sockaddr_in> _masters_addr;
     net::CEpoller _epoller;
@@ -185,7 +193,8 @@ extern "C" int main(int argc, char* argv[])
 }
 
 CUidAgent::CUidAgent()
-    : _echo(0), _udp_socket(NULL), _sequence_fd(-1), _current_time(0), _last_rent_time(0), _io_error(false),
+    : _sync_thread(NULL),
+      _echo(0), _udp_socket(NULL), _sequence_fd(-1), _current_time(0), _last_rent_time(0), _io_error(false),
       _old_seq(0), _old_hour(-1), _old_day(-1), _old_month(-1), _old_year(-1),
       _message_head(NULL)
 {
@@ -203,9 +212,10 @@ CUidAgent::~CUidAgent()
     delete _udp_socket;
     if (_sequence_fd != -1)
         close(_sequence_fd);
+    delete _sync_thread;
 }
 
-bool CUidAgent::init(int argc, char* argv[])
+bool CUidAgent::on_init(int argc, char* argv[])
 {
     std::string errmsg;
     if (!utils::parse_arguments(argc, argv, &errmsg))
@@ -246,8 +256,11 @@ bool CUidAgent::init(int argc, char* argv[])
         MYLOG_INFO("Listen on %s:%d\n", argument::ip->c_value(), argument::port->value());
         _epoller.set_events(_udp_socket, EPOLLIN);
 
+        // 从文件恢复sequence
         if (!restore_sequence())
             return false;
+
+        _sync_thread = new mooon::sys::CThreadEngine(mooon::sys::bind(&CUidAgent::sync_thread, this));
         return true;
     }
     catch (sys::CSyscallException& ex)
@@ -261,9 +274,9 @@ bool CUidAgent::init(int argc, char* argv[])
     }
 }
 
-bool CUidAgent::run()
+bool CUidAgent::on_run()
 {
-    while (true)
+    while (to_stop())
     {
         const int milliseconds = 10000;
         int n = _epoller.timed_wait(milliseconds);
@@ -407,8 +420,33 @@ bool CUidAgent::run()
     return true;
 }
 
-void CUidAgent::fini()
+void CUidAgent::on_fini()
 {
+    _sync_thread->join();
+}
+
+bool CUidAgent::on_check_parameter()
+{
+    return true;
+}
+
+void CUidAgent::on_terminated()
+{
+    CMainHelper::on_terminated();
+}
+
+void CUidAgent::sync_thread()
+{
+    while (!to_stop())
+    {
+        sys::CUtils::millisleep(1000);
+
+        if (_sequence_fd>0 && -1==fdatasync(_sequence_fd))
+        {
+            MYLOG_ERROR("fdatasync failed: %s\n", strerror(errno));
+            exit(1); // Fatal error
+        }
+    }
 }
 
 std::string CUidAgent::get_sequence_path() const
@@ -606,7 +644,7 @@ bool CUidAgent::restore_sequence()
             }
 
             _sequence_fd = ch.release();
-            // 多加一次steps，原因是store时未调用fsync
+            // 多加一次steps，原因是store时未调用fsync（由sync线程异步调用）
             _sequence_start = _seq_block.sequence + (2 * argument::steps->value());
             _seq_block.sequence = _sequence_start;
             _seq_block.update_label(static_cast<uint32_t>(label));
