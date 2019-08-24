@@ -13,20 +13,20 @@ target_link_libraries(muidor_agent libmooon.a pthread dl rt z)
 if (MOOON_HAVE_MYSQL)
 	# muidor_master
 	add_executable(muidor_master master.cpp crc32.cpp)
-	target_link_libraries(muidor_master libmooon.a libmysqlclient.a pthread dl rt)
+	target_link_libraries(muidor_master libmooon.a libmysqlclient.a pthread dl rt z)
 endif ()
 
 # muidor_stress
 add_executable(muidor_stress muidor_stress.cpp)
-target_link_libraries(muidor_stress libmuidor.a libmooon.a pthread dl rt)
+target_link_libraries(muidor_stress libmuidor.a libmooon.a pthread dl rt z)
 
 # muidor_test
 add_executable(muidor_test muidor_test.cpp)
-target_link_libraries(muidor_test libmuidor.a libmooon.a pthread dl rt)
+target_link_libraries(muidor_test libmuidor.a libmooon.a pthread dl rt z)
 
 # master_cli
 add_executable(master_cli master_cli.cpp)
-target_link_libraries(master_cli libmuidor.a libmooon.a pthread dl rt)
+target_link_libraries(master_cli libmuidor.a libmooon.a pthread dl rt z)
 
 # 设置依赖关系
 ADD_DEPENDENCIES(muidor_stress muidor)
@@ -40,7 +40,7 @@ install(
        )
 install(
         DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../include/mooon/muidor       
-        DESTINATION include/mooon
+        DESTINATION include
         PATTERN "muidor.h"
        )
 if (MOOON_HAVE_MYSQL)
