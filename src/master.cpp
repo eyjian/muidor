@@ -16,7 +16,7 @@
  *
  * Author: eyjian@qq.com or eyjian@gmail.com
  */
-#include "mooon/muidor/muidor.h"
+#include "muidor/muidor.h"
 #include "protocol.h"
 #include <fcntl.h>
 #include <map>
@@ -61,7 +61,7 @@ STRING_ARG_DEFINE(db_name, "munidor", "MySQL database name");
 //
 // 当一个Label在expire指定的时间内都没有续租赁过，则会进入一段冻结期，冻结期内该Label不会被回收，但也不能被租赁，
 // 在冻结期之后，该Label则会被回收进入f_label_pool表中。
-INTEGER_ARG_DEFINE(uint32_t, expire, LABEL_EXPIRED_SECONDS, 1, 4294967295U, "Label expired seconds");
+INTEGER_ARG_DEFINE(uint32_t, expire, muidor::LABEL_EXPIRED_SECONDS, 1, 4294967295U, "Label expired seconds");
 // 多长间隔做一次Label过期检测和处理过冻结期的Labels，参数取值应当要小于agent的interval值，比如可以小一半
 // 如果expire的值为1天，则timeout的值可以取10分钟，
 // 如果expire的值为7天，则timeout的值可以取1小时，
@@ -69,7 +69,7 @@ INTEGER_ARG_DEFINE(uint32_t, expire, LABEL_EXPIRED_SECONDS, 1, 4294967295U, "Lab
 INTEGER_ARG_DEFINE(uint32_t, timeout, 3600, 1, 36000, "Timeout in seconds");
 
 ////////////////////////////////////////////////////////////////////////////////
-namespace mooon {
+namespace muidor {
 
 // CREATE DATABASE IF NOT EXISTS munidor DEFAULT CHARSET utf8 COLLATE utf8_general_ci;
 
@@ -148,11 +148,11 @@ struct LabelInfo
         struct in_addr in;
         in.s_addr = ip;
         return mooon::utils::CStringUtils::format_string("label://L%d/%s/%s",
-                (int)label, inet_ntoa(in), sys::CDatetimeUtils::to_datetime(lease_time).c_str());
+                (int)label, inet_ntoa(in), mooon::sys::CDatetimeUtils::to_datetime(lease_time).c_str());
     }
 };
 
-class CUidMaster: public sys::IMainHelper
+class CUidMaster: public mooon::sys::IMainHelper
 {
 public:
     CUidMaster();
@@ -180,8 +180,8 @@ private:
 
 private:
     time_t _current_time;
-    net::CUdpSocket* _udp_socket;
-    sys::CMySQLConnection* _mysql;
+    mooon::net::CUdpSocket* _udp_socket;
+    mooon::sys::CMySQLConnection* _mysql;
     std::map<uint8_t, struct LabelInfo> _label_info_map; // 申请续租的
 
 private:
@@ -195,7 +195,7 @@ private:
 extern "C" int main(int argc, char* argv[])
 {
     CUidMaster master;
-    return sys::main_template(&master, argc, argv);
+    return mooon::sys::main_template(&master, argc, argv);
 }
 
 CUidMaster::CUidMaster()
@@ -216,7 +216,7 @@ CUidMaster::~CUidMaster()
 bool CUidMaster::init(int argc, char* argv[])
 {
     std::string errmsg;
-    if (!utils::parse_arguments(argc, argv, &errmsg))
+    if (!mooon::utils::parse_arguments(argc, argv, &errmsg))
     {
         fprintf(stderr, "%s\n", errmsg.c_str());
         return false;
@@ -229,21 +229,21 @@ bool CUidMaster::init(int argc, char* argv[])
 
     try
     {
-        sys::g_logger = sys::create_safe_logger();
+        mooon::sys::g_logger = mooon::sys::create_safe_logger();
         if (!init_mysql())
             return false;
         if (!generate_labels())
             return false;
 
-        _udp_socket = new net::CUdpSocket;
-        _udp_socket->listen(argument::ip->value(), argument::port->value());
-        MYLOG_INFO("Listen on %s:%d\n", argument::ip->c_value(), argument::port->value());
+        _udp_socket = new mooon::net::CUdpSocket;
+        _udp_socket->listen(mooon::argument::ip->value(), mooon::argument::port->value());
+        MYLOG_INFO("Listen on %s:%d\n", mooon::argument::ip->c_value(), mooon::argument::port->value());
         return true;
     }
-    catch (sys::CSyscallException& ex)
+    catch (mooon::sys::CSyscallException& ex)
     {
         fprintf(stderr, "%s\n", ex.str().c_str());
-        if (sys::g_logger != NULL)
+        if (mooon::sys::g_logger != NULL)
         {
             MYLOG_ERROR("%s\n", ex.str().c_str());
         }
@@ -261,11 +261,11 @@ bool CUidMaster::run()
         int events_requested = POLLIN | POLLERR; // POLLIN | POLLOUT | POLLERR;
         int milliseconds = 10000; // 10seconds
 
-        bool not_timeout = net::CUtils::timed_poll(_udp_socket->get_fd(), events_requested, milliseconds, &events_returned);
+        bool not_timeout = mooon::net::CUtils::timed_poll(_udp_socket->get_fd(), events_requested, milliseconds, &events_returned);
         _current_time = time(NULL);
         if (!not_timeout)
         {
-            if (_current_time - old_time > static_cast<time_t>(argument::timeout->value()))
+            if (_current_time - old_time > static_cast<time_t>(mooon::argument::timeout->value()))
                 on_timeout();
         }
         else
@@ -273,16 +273,17 @@ bool CUidMaster::run()
             int bytes_received = _udp_socket->receive_from(_request_buffer, sizeof(_request_buffer), &_from_addr);
             if (bytes_received < static_cast<int>(sizeof(struct MessageHead)))
             {
-                MYLOG_ERROR("Invalid size (%d) from %s: %s\n", bytes_received, net::to_string(_from_addr).c_str(), strerror(errno));
+                MYLOG_ERROR("Invalid size (%d) from %s: %s\n", bytes_received, mooon::net::to_string(_from_addr).c_str(), strerror(errno));
             }
             else
             {
                 _message_head = reinterpret_cast<struct MessageHead*>(_request_buffer);
-                MYLOG_DEBUG("%s from %s", _message_head->str().c_str(), net::to_string(_from_addr).c_str());
+                MYLOG_DEBUG("%s from %s", _message_head->str().c_str(), mooon::net::to_string(_from_addr).c_str());
 
                 if (bytes_received != _message_head->len)
                 {
-                    MYLOG_ERROR("Invalid size (%d/%d/%zd) from %s: %s\n", bytes_received, _message_head->len.to_int(), sizeof(struct MessageHead), net::to_string(_from_addr).c_str(), strerror(errno));
+                    MYLOG_ERROR("Invalid size (%d/%d/%zd) from %s: %s\n",
+                            bytes_received, _message_head->len.to_int(), sizeof(struct MessageHead), mooon::net::to_string(_from_addr).c_str(), strerror(errno));
                 }
                 else
                 {
@@ -292,8 +293,8 @@ bool CUidMaster::run()
                     const uint32_t magic_ = _message_head->calc_magic();
                     if (magic_ != _message_head->magic)
                     {
-                        errocode = ERROR_ILLEGAL; // 非法来源，直接丢弃
-                        MYLOG_ERROR("[%s] illegal request: %s|%u\n", net::to_string(_from_addr).c_str(), _message_head->str().c_str(), magic_);
+                        errocode = MUE_ILLEGAL; // 非法来源，直接丢弃
+                        MYLOG_ERROR("[%s] illegal request: %s|%u\n", mooon::net::to_string(_from_addr).c_str(), _message_head->str().c_str(), magic_);
                     }
 #endif // _CHECK_MAGIC_
 
@@ -305,7 +306,7 @@ bool CUidMaster::run()
                         }
                         else
                         {
-                            errocode = ERROR_INVALID_TYPE;
+                            errocode = MUE_INVALID_TYPE;
                             MYLOG_ERROR("Invalid message type: %s\n", _message_head->str().c_str());
                         }
                         if (errocode != 0)
@@ -316,11 +317,11 @@ bool CUidMaster::run()
                         try
                         {
                             _udp_socket->send_to(_response_buffer, _response_size, _from_addr);
-                            MYLOG_INFO("Send to %s ok\n", net::to_string(_from_addr).c_str());
+                            MYLOG_INFO("Send to %s ok\n", mooon::net::to_string(_from_addr).c_str());
                         }
-                        catch (sys::CSyscallException& ex)
+                        catch (mooon::sys::CSyscallException& ex)
                         {
-                            MYLOG_ERROR("Send to %s failed: %s\n", net::to_string(_from_addr).c_str(), ex.str().c_str());
+                            MYLOG_ERROR("Send to %s failed: %s\n", mooon::net::to_string(_from_addr).c_str(), ex.str().c_str());
                         }
                     }
                 }
@@ -338,21 +339,21 @@ void CUidMaster::fini()
 bool CUidMaster::check_parameter()
 {
     // db_host
-    if (argument::db_host->value().empty())
+    if (mooon::argument::db_host->value().empty())
     {
         fprintf(stderr, "Parameter[--db_host] not set\n");
         return false;
     }
 
     // db_name
-    if (argument::db_name->value().empty())
+    if (mooon::argument::db_name->value().empty())
     {
         fprintf(stderr, "Parameter[--db_name] not set\n");
         return false;
     }
 
     // db_user
-    if (argument::db_user->value().empty())
+    if (mooon::argument::db_user->value().empty())
     {
         fprintf(stderr, "Parameter[--db_user] not set\n");
         return false;
@@ -363,10 +364,10 @@ bool CUidMaster::check_parameter()
 
 bool CUidMaster::init_mysql()
 {
-    _mysql = new sys::CMySQLConnection;
-    _mysql->set_host(argument::db_host->value(), argument::db_port->value());
-    _mysql->set_db_name(argument::db_name->value());
-    _mysql->set_user(argument::db_user->value(), argument::db_pass->value());
+    _mysql = new mooon::sys::CMySQLConnection;
+    _mysql->set_host(mooon::argument::db_host->value(), mooon::argument::db_port->value());
+    _mysql->set_db_name(mooon::argument::db_name->value());
+    _mysql->set_user(mooon::argument::db_user->value(), mooon::argument::db_pass->value());
     //_mysql->set_charset();
     _mysql->enable_auto_reconnect();
 
@@ -377,7 +378,7 @@ bool CUidMaster::init_mysql()
         _mysql->enable_autocommit(false); // 为false表示开启事务
         return true;
     }
-    catch (sys::CDBException& ex)
+    catch (mooon::sys::CDBException& ex)
     {
         MYLOG_ERROR("Connect %s failed: %s\n", _mysql->str().c_str(), ex.str().c_str());
         return false;
@@ -406,7 +407,7 @@ bool CUidMaster::generate_labels()
 
         return true;
     }
-    catch (sys::CDBException& ex)
+    catch (mooon::sys::CDBException& ex)
     {
         MYLOG_ERROR("Generate labels failed: %s\n", ex.str().c_str());
 
@@ -416,7 +417,7 @@ bool CUidMaster::generate_labels()
             {
                 _mysql->rollback();
             }
-            catch (sys::CDBException& ex)
+            catch (mooon::sys::CDBException& ex)
             {
                 MYLOG_ERROR("Rollback failed: %s\n", ex.str().c_str());
             }
@@ -438,7 +439,7 @@ int CUidMaster::alloc_label()
         const std::string label_str = _mysql->query("SELECT f_label FROM t_label_pool WHERE f_label<=%d AND f_label>0 LIMIT 1", LABEL_MAX);
         if (label_str.empty())
         {
-            MYLOG_ERROR("No label available for %s\n", net::to_string(_from_addr).c_str());
+            MYLOG_ERROR("No label available for %s\n", mooon::net::to_string(_from_addr).c_str());
             return 0;
         }
 
@@ -453,8 +454,8 @@ int CUidMaster::alloc_label()
         }
         else
         {
-            const std::string ip_str = net::CUtils::ipv4_tostring(_from_addr.sin_addr.s_addr);
-            const std::string time_str = sys::CDatetimeUtils::to_datetime(_current_time);
+            const std::string ip_str = mooon::net::CUtils::ipv4_tostring(_from_addr.sin_addr.s_addr);
+            const std::string time_str = mooon::sys::CDatetimeUtils::to_datetime(_current_time);
 
             need_rollback = true;
             n = _mysql->update("INSERT INTO t_label_online (f_label,f_ip,f_time) VALUES (%s,\"%s\",\"%s\")",
@@ -476,7 +477,7 @@ int CUidMaster::alloc_label()
             }
         }
     }
-    catch (sys::CDBException& ex)
+    catch (mooon::sys::CDBException& ex)
     {
         MYLOG_ERROR("%s\n", ex.str().c_str());
 
@@ -486,7 +487,7 @@ int CUidMaster::alloc_label()
             {
                 _mysql->rollback();
             }
-            catch (sys::CDBException& ex)
+            catch (mooon::sys::CDBException& ex)
             {
                 MYLOG_ERROR("Rollback failed: %s\n", ex.str().c_str());
             }
@@ -502,24 +503,24 @@ int CUidMaster::get_label() const
 {
     try
     {
-        time_t expire_time = _current_time - argument::expire->value();
+        time_t expire_time = _current_time - mooon::argument::expire->value();
         const std::string str = _mysql->query("SELECT f_label FROM t_label_online WHERE f_ip=\"%s\" AND f_time>=\"%s\"",
-                net::to_string(_from_addr.sin_addr).c_str(), sys::CDatetimeUtils::to_datetime(expire_time).c_str());
+                mooon::net::to_string(_from_addr.sin_addr).c_str(), mooon::sys::CDatetimeUtils::to_datetime(expire_time).c_str());
 
         if (str.empty())
         {
-            MYLOG_INFO("%s not hold valid label\n", net::to_string(_from_addr.sin_addr).c_str());
+            MYLOG_INFO("%s not hold valid label\n", mooon::net::to_string(_from_addr.sin_addr).c_str());
             return 0;
         }
         else
         {
-            MYLOG_INFO("%s hold label[%s]\n", net::to_string(_from_addr.sin_addr).c_str(), str.c_str());
+            MYLOG_INFO("%s hold label[%s]\n", mooon::net::to_string(_from_addr.sin_addr).c_str(), str.c_str());
             return atoi(str.c_str());
         }
     }
-    catch (sys::CDBException& ex)
+    catch (mooon::sys::CDBException& ex)
     {
-        MYLOG_ERROR("[%s][%s]=>%s", net::to_string(_from_addr.sin_addr).c_str(), ex.sql(), ex.str().c_str());
+        MYLOG_ERROR("[%s][%s]=>%s", mooon::net::to_string(_from_addr.sin_addr).c_str(), ex.sql(), ex.str().c_str());
         return -1;
     }
 }
@@ -527,17 +528,17 @@ int CUidMaster::get_label() const
 // 判断是否持有指定的Label，而且需要在有效期内
 bool CUidMaster::hold_valid_label(uint8_t label) const
 {
-    time_t expire_time = _current_time - argument::expire->value();
+    time_t expire_time = _current_time - mooon::argument::expire->value();
     const std::string str = _mysql->query("SELECT f_ip FROM t_label_online WHERE f_label=%d AND f_time>=\"%s\"",
-            (int)label, sys::CDatetimeUtils::to_datetime(expire_time).c_str());
+            (int)label, mooon::sys::CDatetimeUtils::to_datetime(expire_time).c_str());
 
     if (!str.empty())
     {
-        return str == net::to_string(_from_addr.sin_addr);
+        return str == mooon::net::to_string(_from_addr.sin_addr);
     }
     else
     {
-        MYLOG_ERROR("%s not hold label[%d] or label expired\n", net::to_string(_from_addr).c_str(), (int)label);
+        MYLOG_ERROR("%s not hold label[%d] or label expired\n", mooon::net::to_string(_from_addr).c_str(), (int)label);
         return false;
     }
 }
@@ -556,15 +557,15 @@ void CUidMaster::on_timeout()
             try
             {
                 const struct LabelInfo& label_info = iter->second;
-                const std::string ip_str = net::ip2string(label_info.ip);
-                const std::string time_str = sys::CDatetimeUtils::to_datetime(label_info.lease_time);
+                const std::string ip_str = mooon::net::ip2string(label_info.ip);
+                const std::string time_str = mooon::sys::CDatetimeUtils::to_datetime(label_info.lease_time);
 
                 num_rows = _mysql->update("UPDATE t_label_online SET f_time=\"%s\" WHERE f_label=%d AND f_ip=\"%s\" AND f_time<\"%s\"",
                         time_str.c_str(), (int)label_info.label, ip_str.c_str(), time_str.c_str());
                 MYLOG_DEBUG("update t_label_online ok: (%d)%s\n", num_rows, label_info.str().c_str());
                 need_commit = true;
             }
-            catch (sys::CDBException& ex)
+            catch (mooon::sys::CDBException& ex)
             {
                 MYLOG_ERROR("[%s]=>%s", ex.sql(), ex.str().c_str());
             }
@@ -577,7 +578,7 @@ void CUidMaster::on_timeout()
             _label_info_map.clear();
         }
     }
-    catch (sys::CDBException& ex)
+    catch (mooon::sys::CDBException& ex)
     {
         MYLOG_ERROR("commit failed: %s", ex.str().c_str());
     }
@@ -588,9 +589,9 @@ void CUidMaster::on_timeout()
         static uint64_t timeout_count = 0; // 控制重复日志量
         time_t expire_time = get_expire_time();
 
-        sys::DBTable db_table;
+        mooon::sys::DBTable db_table;
         _mysql->query(db_table, "SELECT f_ip,f_label,f_time FROM t_label_online WHERE f_time<\"%s\"",
-                sys::CDatetimeUtils::to_datetime(expire_time).c_str());
+                mooon::sys::CDatetimeUtils::to_datetime(expire_time).c_str());
         if (db_table.empty())
         {
             if (0 == timeout_count++ % 10000)
@@ -607,9 +608,9 @@ void CUidMaster::on_timeout()
             // 事务包含了锁操作
             //_mysql->update("%s", "LOCK TABLES t_label_online WRITE");
 
-            for (sys::DBTable::size_type row=0; row<db_table.size(); ++row)
+            for (mooon::sys::DBTable::size_type row=0; row<db_table.size(); ++row)
             {
-                const sys::DBRow& db_row = db_table[row];
+                const mooon::sys::DBRow& db_row = db_table[row];
                 const std::string& ip_str = db_row[0];
                 const std::string& label_str = db_row[1];
                 const std::string& time_str = db_row[2];
@@ -626,12 +627,13 @@ void CUidMaster::on_timeout()
                 {
                     need_rollback = true;
                     MYLOG_INFO("[%d] Label[%s] expired(%u) for %s with %s\n",
-                            num_rows, label_str.c_str(), argument::expire->value(), ip_str.c_str(), time_str.c_str());
+                            num_rows, label_str.c_str(), mooon::argument::expire->value(), ip_str.c_str(), time_str.c_str());
 
                     // 回收
                     num_rows = _mysql->update("INSERT INTO t_label_pool (f_label) VALUES (%s)", label_str.c_str());
                     // 日志
-                    _mysql->update("INSERT INTO t_label_log(f_label,f_ip,f_event,f_time) VALUES (%s,\"%s\",%d,\"%s\")", label_str.c_str(), ip_str.c_str(), LABEL_RECYCLED, sys::CDatetimeUtils::to_datetime(_current_time).c_str());
+                    _mysql->update("INSERT INTO t_label_log(f_label,f_ip,f_event,f_time) VALUES (%s,\"%s\",%d,\"%s\")",
+                            label_str.c_str(), ip_str.c_str(), LABEL_RECYCLED, mooon::sys::CDatetimeUtils::to_datetime(_current_time).c_str());
                     MYLOG_INFO("Label[%s] recycled from %s, expired at %s\n",
                             label_str.c_str(), ip_str.c_str(), time_str.c_str());
 
@@ -640,7 +642,7 @@ void CUidMaster::on_timeout()
             } // for
         }
     }
-    catch (sys::CDBException& ex)
+    catch (mooon::sys::CDBException& ex)
     {
         MYLOG_ERROR("[%s]=>%s", ex.sql(), ex.str().c_str());
 
@@ -651,7 +653,7 @@ void CUidMaster::on_timeout()
             {
                 _mysql->rollback();
             }
-            catch (sys::CDBException& ex)
+            catch (mooon::sys::CDBException& ex)
             {
                 MYLOG_ERROR("Rollback failed: %s", ex.str().c_str());
             }
@@ -665,29 +667,29 @@ time_t CUidMaster::get_expire_time() const
 {
     time_t  expire_time;
 
-    if (argument::expire->value() < 3600) // 小于1小时，则冻结时间为过期时间的2倍，此种情况主要用于测试
+    if (mooon::argument::expire->value() < 3600) // 小于1小时，则冻结时间为过期时间的2倍，此种情况主要用于测试
     {
-        expire_time = _current_time - (2 * argument::expire->value());
+        expire_time = _current_time - (2 * mooon::argument::expire->value());
     }
-    else if (argument::expire->value() < 3600*24) // 小于一天，则冻结时间为过期时间加2小时，此种情况主要用于测试
+    else if (mooon::argument::expire->value() < 3600*24) // 小于一天，则冻结时间为过期时间加2小时，此种情况主要用于测试
     {
-        expire_time = _current_time - (3600*2 + argument::expire->value());
+        expire_time = _current_time - (3600*2 + mooon::argument::expire->value());
     }
-    else if (argument::expire->value() < 3600*24*7) // 小于一周，则冻结时间为过期时间加上2天
+    else if (mooon::argument::expire->value() < 3600*24*7) // 小于一周，则冻结时间为过期时间加上2天
     {
-        expire_time = _current_time - ((3600*24*2) + argument::expire->value());
+        expire_time = _current_time - ((3600*24*2) + mooon::argument::expire->value());
     }
-    else if (argument::expire->value() < 3600*24*30) // 过期时间小于1个月，则冻结时间加上3天
+    else if (mooon::argument::expire->value() < 3600*24*30) // 过期时间小于1个月，则冻结时间加上3天
     {
-        expire_time = _current_time - ((3600*24*3) + argument::expire->value());
+        expire_time = _current_time - ((3600*24*3) + mooon::argument::expire->value());
     }
-    else if (argument::expire->value() < 3600*24*90) // 过期时间小于3个月，则冻结时间加上5天
+    else if (mooon::argument::expire->value() < 3600*24*90) // 过期时间小于3个月，则冻结时间加上5天
     {
-        expire_time = _current_time - ((3600*24*5) + argument::expire->value());
+        expire_time = _current_time - ((3600*24*5) + mooon::argument::expire->value());
     }
     else // 冻结时间加上10天
     {
-        expire_time = _current_time - ((3600*24*10) + argument::expire->value());
+        expire_time = _current_time - ((3600*24*10) + mooon::argument::expire->value());
     }
 
     return expire_time;
@@ -699,8 +701,8 @@ void CUidMaster::prepare_response_error(int errcode)
     struct MessageHead* response = reinterpret_cast<struct MessageHead*>(_response_buffer);
 
     _response_size = sizeof(struct MessageHead);
-    response->major_ver = MAJOR_VERSION;
-    response->minor_ver = MINOR_VERSION;
+    response->major_ver = MU_MAJOR_VERSION;
+    response->minor_ver = MU_MINOR_VERSION;
     response->len = sizeof(struct MessageHead);
     response->type = RESPONSE_ERROR;
     response->echo = request->echo;
@@ -708,7 +710,7 @@ void CUidMaster::prepare_response_error(int errcode)
     response->value2 = 0;
     response->update_magic();
 
-    MYLOG_DEBUG("prepare %s ok for %s\n", response->str().c_str(), net::to_string(_from_addr).c_str());
+    MYLOG_DEBUG("prepare %s ok for %s\n", response->str().c_str(), mooon::net::to_string(_from_addr).c_str());
 }
 
 int CUidMaster::prepare_response_get_label()
@@ -719,8 +721,8 @@ int CUidMaster::prepare_response_get_label()
 
     if ((label < 0) || (label > LABEL_MAX))
     {
-        MYLOG_ERROR("invalid label[%u] from %s\n", label, net::to_string(_from_addr).c_str());
-        return ERROR_INVALID_LABEL;
+        MYLOG_ERROR("invalid label[%u] from %s\n", label, mooon::net::to_string(_from_addr).c_str());
+        return MUE_INVALID_LABEL;
     }
     else
     {
@@ -728,7 +730,7 @@ int CUidMaster::prepare_response_get_label()
         {
             // 续租，如果agent不持有该label，则应当重新租赁
             if (!hold_valid_label(label))
-                return ERROR_LABEL_NOT_HOLD;
+                return MUE_LABEL_NOT_HOLD;
         }
         else
         {
@@ -737,7 +739,7 @@ int CUidMaster::prepare_response_get_label()
             label = get_label();
             if (-1 == label)
             {
-                return ERROR_DATABASE;
+                return MUE_DATABASE;
             }
             else if (0 == label)
             {
@@ -745,25 +747,25 @@ int CUidMaster::prepare_response_get_label()
                 label = alloc_label();
                 if (0 == label)
                 {
-                    return ERROR_NO_LABEL;
+                    return MUE_NO_LABEL;
                 }
                 else if (-1 == label)
                 {
-                    return ERROR_DATABASE;
+                    return MUE_DATABASE;
                 }
             }
         }
 
         _response_size = sizeof(struct MessageHead);
-        response->major_ver = MAJOR_VERSION;
-        response->minor_ver = MINOR_VERSION;
+        response->major_ver = MU_MAJOR_VERSION;
+        response->minor_ver = MU_MINOR_VERSION;
         response->len = sizeof(struct MessageHead);
         response->type = RESPONSE_LABEL;
         response->echo = request->echo;
         response->value1 = label;
         response->value2 = 0;
         response->update_magic();
-        MYLOG_INFO("%s => %s\n", response->str().c_str(), net::to_string(_from_addr).c_str());
+        MYLOG_INFO("%s => %s\n", response->str().c_str(), mooon::net::to_string(_from_addr).c_str());
 
         struct LabelInfo label_info(label, _from_addr.sin_addr.s_addr, _current_time);
         const std::pair<std::map<uint8_t, struct LabelInfo>::iterator, bool> ret =
@@ -778,4 +780,4 @@ int CUidMaster::prepare_response_get_label()
     return 0;
 }
 
-} // namespace mooon {
+} // namespace muidor {

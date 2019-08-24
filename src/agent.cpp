@@ -16,8 +16,8 @@
  *
  * Author: eyjian@qq.com or eyjian@gmail.com
  */
-#include "mooon/muidor/muidor.h"
 #include "protocol.h"
+#include "muidor/muidor.h"
 #include <fcntl.h>
 #include <mooon/net/epoller.h>
 #include <mooon/net/udp_socket.h>
@@ -49,7 +49,7 @@
 STRING_ARG_DEFINE(master_nodes, "", "master nodes, e.g., 192.168.31.66:2016,192.168.31.88:2016");
 STRING_ARG_DEFINE(ip, "0.0.0.0", "listen IP");
 INTEGER_ARG_DEFINE(uint16_t, port, 6200, 1000, 65535, "listen port");
-INTEGER_ARG_DEFINE(uint8_t, label, 0, 0, LABEL_MAX, "unique label of a machine");
+INTEGER_ARG_DEFINE(uint8_t, label, 0, 0, muidor::LABEL_MAX, "unique label of a machine");
 INTEGER_ARG_DEFINE(uint32_t, steps, 100000, 1, 100000000, "steps to store");
 
 // Label过期时长参数，所有节点的expire值必须保持相同，包括master节点和所有agent节点
@@ -60,12 +60,12 @@ INTEGER_ARG_DEFINE(uint32_t, steps, 100000, 1, 100000000, "steps to store");
 // 当一个Label在expire指定的时间内都没有续租赁过，则会进入一段冻结期，
 // 冻结期内该Label不会被回收，但也不能被租赁，在冻结期之后，该Label则会被回收
 // expire值必须大于interval的两倍，且必须大10
-INTEGER_ARG_DEFINE(uint32_t, expire, LABEL_EXPIRED_SECONDS, 10, 4294967295U, "label expired seconds");
+INTEGER_ARG_DEFINE(uint32_t, expire, muidor::LABEL_EXPIRED_SECONDS, 10, 4294967295U, "label expired seconds");
 // 多长间隔向master发一次租赁Lable请求
 INTEGER_ARG_DEFINE(uint32_t, interval, 600, 1, 7200, "rent label interval in seconds");
 
 ////////////////////////////////////////////////////////////////////////////////
-namespace mooon {
+namespace muidor {
 
 // 常量
 enum
@@ -89,8 +89,8 @@ struct SeqBlock
 
     std::string str() const
     {
-        return utils::CStringUtils::format_string("block://V%u/L%u/S%u/D%s/M%" PRId64,
-                version, label, sequence, sys::CDatetimeUtils::to_datetime(timestamp).c_str(), magic);
+        return mooon::utils::CStringUtils::format_string("block://V%u/L%u/S%u/D%s/M%" PRId64,
+                version, label, sequence, mooon::sys::CDatetimeUtils::to_datetime(timestamp).c_str(), magic);
     }
 
     void update_label(uint32_t label_)
@@ -117,7 +117,7 @@ struct SeqBlock
 };
 #pragma pack()
 
-class CUidAgent: public sys::CMainHelper
+class CUidAgent: public mooon::sys::CMainHelper
 {
 public:
     CUidAgent();
@@ -159,18 +159,18 @@ private:
     int on_response_label();
 
 private:
-    sys::CThreadEngine* _sync_thread;
-    sys::CEvent _event;
-    sys::CLock _lock;
+    mooon::sys::CThreadEngine* _sync_thread;
+    mooon::sys::CEvent _event;
+    mooon::sys::CLock _lock;
     uint32_t _echo;
     std::vector<struct sockaddr_in> _masters_addr;
-    net::CEpoller _epoller;
-    net::CUdpSocket* _udp_socket;
+    mooon::net::CEpoller _epoller;
+    mooon::net::CUdpSocket* _udp_socket;
     uint32_t _sequence_start;
     struct SeqBlock _seq_block;
     std::string _sequence_path;
     int _sequence_fd;
-    sys::CAtomic<int> _num_sequences; // 当前累计增加数，影响fsync的调用
+    mooon::sys::CAtomic<int> _num_sequences; // 当前累计增加数，影响fsync的调用
     time_t _current_time; // 当前时间
     time_t _last_rent_time; // 最后一次向master发起rent_label的时间
     bool _io_error; // IO出错标记，将不能继续服务
@@ -195,7 +195,7 @@ private:
 extern "C" int main(int argc, char* argv[])
 {
     CUidAgent agent;
-    return sys::main_template(&agent, argc, argv);
+    return mooon::sys::main_template(&agent, argc, argv);
 }
 
 CUidAgent::CUidAgent()
@@ -226,7 +226,7 @@ CUidAgent::~CUidAgent()
 bool CUidAgent::on_init(int argc, char* argv[])
 {
     std::string errmsg;
-    if (!utils::parse_arguments(argc, argv, &errmsg))
+    if (!mooon::utils::parse_arguments(argc, argv, &errmsg))
     {
         fprintf(stderr, "%s\n", errmsg.c_str());
         fprintf(stderr, "%s\n", mooon::utils::g_help_string.c_str());
@@ -234,14 +234,14 @@ bool CUidAgent::on_init(int argc, char* argv[])
     }
 
     // Check parameters
-    if (argument::master_nodes->value().empty() && (0 == argument::label->value()))
+    if (mooon::argument::master_nodes->value().empty() && (0 == mooon::argument::label->value()))
     {
     	fprintf(stderr, "Parameter[--master] is empty and parameter[label] is 0 at the same time.\n");
     	fprintf(stderr, "%s\n", mooon::utils::g_help_string.c_str());
     	return false;
     }
-    if ((argument::expire->value() < argument::interval->value() * 2) ||
-        (argument::expire->value() < argument::interval->value() + 10))
+    if ((mooon::argument::expire->value() < mooon::argument::interval->value() * 2) ||
+        (mooon::argument::expire->value() < mooon::argument::interval->value() + 10))
     {
         fprintf(stderr, "Parameter[--expire] should greater than interval with 10 and double\n");
         fprintf(stderr, "%s\n", mooon::utils::g_help_string.c_str());
@@ -255,13 +255,13 @@ bool CUidAgent::on_init(int argc, char* argv[])
 
     try
     {
-        sys::g_logger = sys::create_safe_logger();
+        mooon::sys::g_logger = mooon::sys::create_safe_logger();
         _current_time = time(NULL);
 
         _epoller.create(10);
-        _udp_socket = new net::CUdpSocket;
-        _udp_socket->listen(argument::ip->value(), argument::port->value(), true);
-        MYLOG_INFO("Listen on %s:%d\n", argument::ip->c_value(), argument::port->value());
+        _udp_socket = new mooon::net::CUdpSocket;
+        _udp_socket->listen(mooon::argument::ip->value(), mooon::argument::port->value(), true);
+        MYLOG_INFO("Listen on %s:%d\n", mooon::argument::ip->c_value(), mooon::argument::port->value());
         _epoller.set_events(_udp_socket, EPOLLIN);
 
         // 从文件恢复sequence
@@ -273,10 +273,10 @@ bool CUidAgent::on_init(int argc, char* argv[])
             return true;
         }
     }
-    catch (sys::CSyscallException& ex)
+    catch (mooon::sys::CSyscallException& ex)
     {
         fprintf(stderr, "%s\n", ex.str().c_str());
-        if (sys::g_logger != NULL)
+        if (mooon::sys::g_logger != NULL)
         {
             MYLOG_ERROR("%s\n", ex.str().c_str());
         }
@@ -293,7 +293,7 @@ bool CUidAgent::on_run()
 
         // 不需要那么精确的时间
         _current_time = time(NULL);
-        if (_current_time - _last_rent_time > static_cast<time_t>(argument::interval->value()))
+        if (_current_time - _last_rent_time > static_cast<time_t>(mooon::argument::interval->value()))
         {
             // 间隔的向master发一个续租请求
             rent_label();
@@ -329,16 +329,18 @@ bool CUidAgent::on_run()
                     }
                     else if (bytes_received < static_cast<int>(sizeof(struct MessageHead)))
                     {
-                        MYLOG_ERROR("Invalid size (%d) from %s: %s\n", bytes_received, net::to_string(_from_addr).c_str(), strerror(errno));
+                        MYLOG_ERROR("Invalid size (%d) from %s: %s\n", bytes_received, mooon::net::to_string(_from_addr).c_str(), strerror(errno));
                     }
                     else
                     {
                         _message_head = reinterpret_cast<struct MessageHead*>(_request_buffer);
-                        MYLOG_DEBUG("%s from %s", _message_head->str().c_str(), net::to_string(_from_addr).c_str());
+                        MYLOG_DEBUG("%s from %s", _message_head->str().c_str(), mooon::net::to_string(_from_addr).c_str());
 
                         if (bytes_received != _message_head->len)
                         {
-                            MYLOG_ERROR("Invalid size (%d/%d/%zd) from %s: %s\n", bytes_received, _message_head->len.to_int(), sizeof(struct MessageHead), net::to_string(_from_addr).c_str(), strerror(errno));
+                            MYLOG_ERROR("Invalid size (%d/%d/%zd) from %s: %s\n",
+                                    bytes_received, _message_head->len.to_int(), sizeof(struct MessageHead),
+                                    mooon::net::to_string(_from_addr).c_str(), strerror(errno));
                         }
                         else
                         {
@@ -350,7 +352,7 @@ bool CUidAgent::on_run()
                             if (magic_ != _message_head->magic)
                             {
                                 //errcode = ERROR_ILLEGAL; // 非法来源，直接丢弃
-                                MYLOG_ERROR("[%s] illegal request: %s|%u\n", net::to_string(_from_addr).c_str(), _message_head->str().c_str(), magic_);
+                                MYLOG_ERROR("[%s] illegal request: %s|%u\n", mooon::net::to_string(_from_addr).c_str(), _message_head->str().c_str(), magic_);
                             }
 #endif // _CHECK_MAGIC_
 
@@ -392,7 +394,7 @@ bool CUidAgent::on_run()
                                 }
                                 else
                                 {
-                                    errcode = ERROR_INVALID_TYPE;
+                                    errcode = MUE_INVALID_TYPE;
                                     MYLOG_ERROR("Invalid message type: %s\n", _message_head->str().c_str());
                                 }
                                 if ((errcode != 0) && (errcode != -1))
@@ -407,18 +409,18 @@ bool CUidAgent::on_run()
                                     try
                                     {
                                         _udp_socket->send_to(_response_buffer, _response_size, _from_addr);
-                                        MYLOG_DEBUG("Send to %s ok\n", net::to_string(_from_addr).c_str());
+                                        MYLOG_DEBUG("Send to %s ok\n", mooon::net::to_string(_from_addr).c_str());
                                     }
-                                    catch (sys::CSyscallException& ex)
+                                    catch (mooon::sys::CSyscallException& ex)
                                     {
-                                        MYLOG_ERROR("Send to %s failed: %s\n", net::to_string(_from_addr).c_str(), ex.str().c_str());
+                                        MYLOG_ERROR("Send to %s failed: %s\n", mooon::net::to_string(_from_addr).c_str(), ex.str().c_str());
                                     }
                                 }
                             }
                         }
                     }
                 }
-                catch (sys::CSyscallException& ex)
+                catch (mooon::sys::CSyscallException& ex)
                 {
                     MYLOG_ERROR("Receive_from failed: %s\n", ex.str().c_str());
                     break;
@@ -452,7 +454,7 @@ void CUidAgent::sync_thread()
     {
         // Sleep 1s
         {
-            sys::LockHelper<sys::CLock> lh(_lock);
+            mooon::sys::LockHelper<mooon::sys::CLock> lh(_lock);
             _event.timed_wait(_lock, 1000);
         }
 
@@ -466,14 +468,14 @@ void CUidAgent::sync_thread()
 
 std::string CUidAgent::get_sequence_path() const
 {
-    return sys::CUtils::get_program_path() + std::string("/.uniq.seq");
+    return mooon::sys::CUtils::get_program_path() + std::string("/.uniq.seq");
 }
 
 int CUidAgent::get_label(bool asynchronous)
 {
-	if (argument::master_nodes->value().empty())
+	if (mooon::argument::master_nodes->value().empty())
 	{
-		return argument::label->value();
+		return mooon::argument::label->value();
 	}
 	else
 	{
@@ -486,8 +488,8 @@ int CUidAgent::get_label(bool asynchronous)
         {
             try
             {
-                request->major_ver = MAJOR_VERSION;
-                request->minor_ver = MINOR_VERSION;
+                request->major_ver = MU_MAJOR_VERSION;
+                request->minor_ver = MU_MINOR_VERSION;
                 request->len = sizeof(struct MessageHead);
                 request->type = REQUEST_LABEL;
                 request->echo = _echo++;
@@ -512,7 +514,7 @@ int CUidAgent::get_label(bool asynchronous)
                     if (RESPONSE_ERROR == response->type)
                     {
                         MYLOG_ERROR("(%d)get label[%u] error: %s\n", k, _seq_block.label, response->str().c_str());
-                        if (response->value1.to_int() != ERROR_LABEL_NOT_HOLD)
+                        if (response->value1.to_int() != MUE_LABEL_NOT_HOLD)
                             break;
 
                         // 需要重新租赁Label，故重置
@@ -531,20 +533,21 @@ int CUidAgent::get_label(bool asynchronous)
                         }
                         else
                         {
-                            MYLOG_ERROR("Invalid label[%d] from %s\n", (int)response->value1.to_int(), net::to_string(_from_addr).c_str());
+                            MYLOG_ERROR("Invalid label[%d] from %s\n", (int)response->value1.to_int(), mooon::net::to_string(_from_addr).c_str());
                             break;
                         }
                     }
                     else
                     {
-                        MYLOG_ERROR("Invalid response[%s] for request[%s] from %s\n", response->str().c_str(), request->str().c_str(), net::to_string(_from_addr).c_str());
+                        MYLOG_ERROR("Invalid response[%s] for request[%s] from %s\n",
+                                response->str().c_str(), request->str().c_str(), mooon::net::to_string(_from_addr).c_str());
                         break;
                     }
                 }
             }
-            catch (sys::CSyscallException& ex)
+            catch (mooon::sys::CSyscallException& ex)
             {
-                MYLOG_ERROR("Rent label from %s faield: %s\n", net::to_string(_from_addr).c_str(), ex.str().c_str());
+                MYLOG_ERROR("Rent label from %s faield: %s\n", mooon::net::to_string(_from_addr).c_str(), ex.str().c_str());
                 break;
             }
         } // for
@@ -555,8 +558,8 @@ int CUidAgent::get_label(bool asynchronous)
 
 bool CUidAgent::parse_master_nodes()
 {
-    const std::string& master_nodes = argument::master_nodes->value();
-    utils::CEnhancedTokener tokener;
+    const std::string& master_nodes = mooon::argument::master_nodes->value();
+    mooon::utils::CEnhancedTokener tokener;
 
     tokener.parse(master_nodes, ",", ':');
     const std::map<std::string, std::string>& tokens = tokener.tokens();
@@ -565,7 +568,7 @@ bool CUidAgent::parse_master_nodes()
         const std::string& ip_str = iter->first;
         const std::string& port_str = iter->second;
 
-        uint32_t ip = net::string2ipv4(ip_str);
+        uint32_t ip = mooon::net::string2ipv4(ip_str);
         if (0 == ip)
         {
             fprintf(stderr, "Parameter[--master_nodes] error: %s\n", master_nodes.c_str());
@@ -582,7 +585,7 @@ bool CUidAgent::parse_master_nodes()
         struct sockaddr_in master_addr;
         master_addr.sin_family = AF_INET;
         master_addr.sin_addr.s_addr = ip;
-        master_addr.sin_port = net::CUtils::host2net(static_cast<uint16_t>(port));
+        master_addr.sin_port = mooon::net::CUtils::host2net(static_cast<uint16_t>(port));
         memset(master_addr.sin_zero, 0, sizeof(master_addr.sin_zero));
         _masters_addr.push_back(master_addr);
     }
@@ -601,7 +604,7 @@ bool CUidAgent::restore_sequence()
         return false;
     }
 
-    sys::CloseHelper<int> ch(fd);
+    mooon::sys::CloseHelper<int> ch(fd);
     ssize_t bytes_read = pread(fd, &_seq_block, sizeof(_seq_block), 0);
     if (0 == bytes_read)
     {
@@ -615,7 +618,7 @@ bool CUidAgent::restore_sequence()
         }
 
         _sequence_fd = ch.release();
-        _sequence_start = argument::steps->value();
+        _sequence_start = mooon::argument::steps->value();
         _seq_block.sequence = _sequence_start;
         _seq_block.update_label(static_cast<uint32_t>(label));
         return store_sequence();
@@ -642,10 +645,10 @@ bool CUidAgent::restore_sequence()
         }
         else
         {
-            if (argument::master_nodes->value().empty())
+            if (mooon::argument::master_nodes->value().empty())
             {
                 // 本地模式
-                label = argument::label->value();
+                label = mooon::argument::label->value();
             }
             else if (label_expired())
             {
@@ -660,7 +663,7 @@ bool CUidAgent::restore_sequence()
 
             _sequence_fd = ch.release();
             // 多加一次steps，原因是store时未调用fsync（由sync线程异步调用）
-            _sequence_start = _seq_block.sequence + (2 * argument::steps->value());
+            _sequence_start = _seq_block.sequence + (2 * mooon::argument::steps->value());
             _seq_block.sequence = _sequence_start;
             _seq_block.update_label(static_cast<uint32_t>(label));
 
@@ -711,7 +714,7 @@ void CUidAgent::inc_num_sequence(int n)
     {
         ++_num_sequences;
     }
-    if (-1==n || _num_sequences>=static_cast<int>(argument::steps->value()))
+    if (-1==n || _num_sequences>=static_cast<int>(mooon::argument::steps->value()))
     {
         _event.signal();
         _num_sequences = 0;
@@ -724,9 +727,9 @@ uint32_t CUidAgent::inc_sequence(uint16_t deta)
 	uint32_t sequence = 0;
 
 	if ((_seq_block.sequence < _sequence_start) ||
-	    (_seq_block.sequence - _sequence_start > argument::steps->value()))
+	    (_seq_block.sequence - _sequence_start > mooon::argument::steps->value()))
 	{
-	    MYLOG_DEBUG("seq_block.sequence=%u, sequence_start=%u, steps=%u\n", _seq_block.sequence, _sequence_start, argument::steps->value());
+	    MYLOG_DEBUG("seq_block.sequence=%u, sequence_start=%u, steps=%u\n", _seq_block.sequence, _sequence_start, mooon::argument::steps->value());
 	    stored = store_sequence();
 	    inc_num_sequence(-1);
 	}
@@ -797,7 +800,7 @@ uint64_t CUidAgent::get_uniq_id(const struct MessageHead* request)
         union UniqID uniq_id;
         uniq_id.id.user = static_cast<uint8_t>(request->value1.to_int());
         uniq_id.id.label = static_cast<uint8_t>(_seq_block.label);
-        uniq_id.id.year = (now->tm_year+1900) - BASE_YEAR;
+        uniq_id.id.year = (now->tm_year+1900) - MU_BASE_YEAR;
         uniq_id.id.month = now->tm_mon+1;
         uniq_id.id.day = now->tm_mday;
         uniq_id.id.hour = now->tm_hour;
@@ -826,7 +829,7 @@ uint64_t CUidAgent::get_uniq_id(const struct MessageHead* request)
 
 void CUidAgent::rent_label()
 {
-    if (!argument::master_nodes->value().empty())
+    if (!mooon::argument::master_nodes->value().empty())
     {
         int label = get_label(true);
 
@@ -839,13 +842,15 @@ void CUidAgent::rent_label()
 
 bool CUidAgent::label_expired() const
 {
-    if (argument::master_nodes->value().empty())
+    if (mooon::argument::master_nodes->value().empty())
         return false;
 
-    bool expired = _current_time - static_cast<time_t>(_seq_block.timestamp) > static_cast<time_t>(argument::expire->value());
+    bool expired = _current_time - static_cast<time_t>(_seq_block.timestamp) > static_cast<time_t>(mooon::argument::expire->value());
     if (expired)
     {
-        MYLOG_ERROR("Label[%u] expired(%u): %s\n", _seq_block.label, argument::expire->value(), sys::CDatetimeUtils::to_datetime(static_cast<time_t>(_seq_block.timestamp)).c_str());
+        MYLOG_ERROR("Label[%u] expired(%u): %s\n",
+                _seq_block.label, mooon::argument::expire->value(),
+                mooon::sys::CDatetimeUtils::to_datetime(static_cast<time_t>(_seq_block.timestamp)).c_str());
     }
     return expired;
 }
@@ -863,8 +868,8 @@ void CUidAgent::prepare_response_error(int errcode)
     struct MessageHead* response = reinterpret_cast<struct MessageHead*>(_response_buffer);
 
     _response_size = sizeof(struct MessageHead);
-    response->major_ver = MAJOR_VERSION;
-    response->minor_ver = MINOR_VERSION;
+    response->major_ver = MU_MAJOR_VERSION;
+    response->minor_ver = MU_MINOR_VERSION;
     response->len = sizeof(struct MessageHead);
     response->type = RESPONSE_ERROR;
     response->echo = request->echo;
@@ -880,11 +885,11 @@ int CUidAgent::prepare_response_get_label()
 {
     if (label_expired())
     {
-        return ERROR_LABEL_EXPIRED;
+        return MUE_LABEL_EXPIRED;
     }
     else if (io_error())
     {
-        return ERROR_STORE_SEQ;
+        return MUE_STORE_SEQ;
     }
     else
     {
@@ -892,8 +897,8 @@ int CUidAgent::prepare_response_get_label()
         struct MessageHead* response = reinterpret_cast<struct MessageHead*>(_response_buffer);
 
         _response_size = sizeof(struct MessageHead);
-        response->major_ver = MAJOR_VERSION;
-        response->minor_ver = MINOR_VERSION;
+        response->major_ver = MU_MAJOR_VERSION;
+        response->minor_ver = MU_MINOR_VERSION;
         response->len = sizeof(struct MessageHead);
         response->type = RESPONSE_LABEL;
         response->echo = request->echo;
@@ -911,11 +916,11 @@ int CUidAgent::prepare_response_get_uniq_id()
 {
     if (label_expired())
     {
-        return ERROR_LABEL_EXPIRED;
+        return MUE_LABEL_EXPIRED;
     }
     else if (io_error())
     {
-        return ERROR_STORE_SEQ;
+        return MUE_STORE_SEQ;
     }
     else
     {
@@ -925,17 +930,17 @@ int CUidAgent::prepare_response_get_uniq_id()
         uint64_t uniq_id = get_uniq_id(request);
         if (0 == uniq_id)
         {
-            return ERROR_STORE_SEQ;
+            return MUE_STORE_SEQ;
         }
         else if (1 == uniq_id)
         {
-            return ERROR_OVERFLOW;
+            return MUE_OVERFLOW;
         }
         else
         {
             _response_size = sizeof(struct MessageHead);
-            response->major_ver = MAJOR_VERSION;
-            response->minor_ver = MINOR_VERSION;
+            response->major_ver = MU_MAJOR_VERSION;
+            response->minor_ver = MU_MINOR_VERSION;
             response->len = sizeof(struct MessageHead);
             response->type = RESPONSE_UNIQ_ID;
             response->echo = request->echo;
@@ -954,11 +959,11 @@ int CUidAgent::prepare_response_get_uniq_seq()
 {
     if (label_expired())
     {
-        return ERROR_LABEL_EXPIRED;
+        return MUE_LABEL_EXPIRED;
     }
     else if (io_error())
     {
-        return ERROR_STORE_SEQ;
+        return MUE_STORE_SEQ;
     }
     else
     {
@@ -969,13 +974,13 @@ int CUidAgent::prepare_response_get_uniq_seq()
 
         if (0 == seq)
         {
-            return ERROR_STORE_SEQ;
+            return MUE_STORE_SEQ;
         }
         else
         {
             _response_size = sizeof(struct MessageHead);
-            response->major_ver = MAJOR_VERSION;
-            response->minor_ver = MINOR_VERSION;
+            response->major_ver = MU_MAJOR_VERSION;
+            response->minor_ver = MU_MINOR_VERSION;
             response->len = sizeof(struct MessageHead);
             response->type = RESPONSE_UNIQ_SEQ;
             response->echo = request->echo;
@@ -994,11 +999,11 @@ int CUidAgent::prepare_response_get_label_and_seq()
 {
     if (label_expired())
     {
-        return ERROR_LABEL_EXPIRED;
+        return MUE_LABEL_EXPIRED;
     }
     else if (io_error())
     {
-        return ERROR_STORE_SEQ;
+        return MUE_STORE_SEQ;
     }
     else
     {
@@ -1009,13 +1014,13 @@ int CUidAgent::prepare_response_get_label_and_seq()
 
         if (0 == seq)
         {
-            return ERROR_STORE_SEQ;
+            return MUE_STORE_SEQ;
         }
         else
         {
             _response_size = sizeof(struct MessageHead);
-            response->major_ver = MAJOR_VERSION;
-            response->minor_ver = MINOR_VERSION;
+            response->major_ver = MU_MAJOR_VERSION;
+            response->minor_ver = MU_MINOR_VERSION;
             response->len = sizeof(struct MessageHead);
             response->type = RESPONSE_LABEL_AND_SEQ;
             response->echo = request->echo;
@@ -1033,9 +1038,9 @@ int CUidAgent::prepare_response_get_label_and_seq()
 int CUidAgent::on_response_error()
 {
     struct MessageHead* response = reinterpret_cast<struct MessageHead*>(_request_buffer);
-    MYLOG_ERROR("%s from %s\n", response->str().c_str(), net::to_string(_from_addr).c_str());
+    MYLOG_ERROR("%s from %s\n", response->str().c_str(), mooon::net::to_string(_from_addr).c_str());
 
-    if (ERROR_LABEL_NOT_HOLD == response->value1.to_int())
+    if (MUE_LABEL_NOT_HOLD == response->value1.to_int())
     {
         // 需要重新租赁Label，故重置
         _seq_block.update_label(0);
@@ -1048,7 +1053,7 @@ int CUidAgent::on_response_error()
 int CUidAgent::on_response_label()
 {
     struct MessageHead* response = reinterpret_cast<struct MessageHead*>(_request_buffer);
-    MYLOG_INFO("%s from %s\n", response->str().c_str(), net::to_string(_from_addr).c_str());
+    MYLOG_INFO("%s from %s\n", response->str().c_str(), mooon::net::to_string(_from_addr).c_str());
 
     uint32_t old_label = _seq_block.label;
     _seq_block.update_label(static_cast<uint32_t>(response->value1.to_int()));
@@ -1064,4 +1069,4 @@ int CUidAgent::on_response_label()
     return -1;
 }
 
-} // namespace mooon {
+} // namespace muidor {

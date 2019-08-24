@@ -39,7 +39,7 @@ install(
         DESTINATION lib
        )
 install(
-        DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../include/mooon/muidor       
+        DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../include/muidor       
         DESTINATION include
         PATTERN "muidor.h"
        )

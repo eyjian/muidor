@@ -19,10 +19,10 @@
 #ifndef MOOON_MUIDOR_PROTOCOL_H
 #define MOOON_MUIDOR_PROTOCOL_H
 #include "crc32.h"
-#include "mooon/muidor/muidor.h"
+#include "muidor/muidor.h"
 #include <mooon/net/inttypes.h>
 #include <mooon/utils/string_utils.h>
-namespace mooon {
+namespace muidor {
 
 // 常量
 enum
@@ -73,13 +73,14 @@ struct MessageHead
     nuint64_t value3;    // 当type值为RESPONSE_UNIQ_SEQ时，value2，表示从value1开始连续多少个seq，但0为无效的seq
 
     MessageHead()
-        : major_ver(MAJOR_VERSION), minor_ver(MINOR_VERSION)
+        : major_ver(MU_MAJOR_VERSION), minor_ver(MU_MINOR_VERSION)
     {
     }
 
     std::string str() const
     {
-        return utils::CStringUtils::format_string("message://V:%d.%d/L:%d/T:%d/E:%u/M:%u/V1:%u/V2:%u/V3:%" PRIu64, (int)major_ver.to_int(), (int)minor_ver.to_int(), (int)len.to_int(), (int)type.to_int(), echo.to_int(), magic.to_int(), value1.to_int(), value2.to_int(), value3.to_int());
+        return mooon::utils::CStringUtils::format_string("message://V:%d.%d/L:%d/T:%d/E:%u/M:%u/V1:%u/V2:%u/V3:%" PRIu64,
+                (int)major_ver.to_int(), (int)minor_ver.to_int(), (int)len.to_int(), (int)type.to_int(), echo.to_int(), magic.to_int(), value1.to_int(), value2.to_int(), value3.to_int());
     }
 
     uint32_t calc_magic() const
@@ -113,5 +114,5 @@ struct MessageHead
 
 #pragma pack()
 
-} // namespace mooon {
+} // namespace muidor {
 #endif // MOOON_MUIDOR_PROTOCOL_H

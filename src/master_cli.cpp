@@ -17,6 +17,7 @@
  * Author: eyjian@qq.com or eyjian@gmail.com
  */
 #include "protocol.h"
+#include "muidor/muidor.h"
 #include <mooon/net/udp_socket.h>
 #include <mooon/net/utils.h>
 #include <mooon/sys/close_helper.h>
@@ -47,10 +48,10 @@ int main(int argc, char* argv[])
     {
         struct sockaddr_in from_addr;
         mooon::net::CUdpSocket udp_socket;
-        mooon::MessageHead response;
-        mooon::MessageHead request;
+        muidor::MessageHead response;
+        muidor::MessageHead request;
         request.len = sizeof(request);
-        request.type = mooon::REQUEST_LABEL;
+        request.type = muidor::REQUEST_LABEL;
         request.echo = 2016;
         request.value1 = (NULL == label)? 0: atoi(label);
         request.value2 = 0;
@@ -59,10 +60,10 @@ int main(int argc, char* argv[])
         udp_socket.timed_receive_from(&response, sizeof(response), &from_addr, 2000);
         fprintf(stdout, "%s\n", response.str().c_str());
 
-        if (mooon::RESPONSE_ERROR == response.type)
+        if (muidor::RESPONSE_ERROR == response.type)
             fprintf(stderr, "ERROR: %u\n", response.value1.to_int());
-        else if (mooon::RESPONSE_LABEL == response.type)
-            fprintf(stdout, "label: %u(%s)\n", response.value1.to_int(), mooon::label2string(response.value1.to_int()).c_str());
+        else if (muidor::RESPONSE_LABEL == response.type)
+            fprintf(stdout, "label: %u(%s)\n", response.value1.to_int(), muidor::label2string(response.value1.to_int()).c_str());
         else
             fprintf(stderr, "UNKNOWN\n");
     }

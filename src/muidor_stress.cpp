@@ -16,7 +16,7 @@
  *
  * Author: eyjian@qq.com or eyjian@gmail.com
  */
-#include <mooon/muidor/muidor.h>
+#include "muidor/muidor.h"
 #include <mooon/sys/stop_watch.h>
 #include <mooon/sys/thread_engine.h>
 #include <mooon/utils/string_utils.h>
@@ -110,13 +110,13 @@ void thread_proc(uint64_t times, const char* agent_nodes, bool polling)
     {
         try
         {
-            mooon::CMuidor muidor(agent_nodes, timeout_milliseconds, retry_times, polling);
+            muidor::CMuidor muidor(agent_nodes, timeout_milliseconds, retry_times, polling);
 #if 1
             uint64_t uid = muidor.get_uniq_id();
 #else
             uint64_t uid = muidor.get_local_uniq_id();
 #endif
-            union mooon::UniqID uid_struct;
+            union muidor::UniqID uid_struct;
             uid_struct.value = uid;
 
             if ((0 == i) || (0 == i%100000) || (i == times-1))
