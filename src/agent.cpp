@@ -430,7 +430,8 @@ bool CUidAgent::on_run()
 
 void CUidAgent::on_fini()
 {
-    _sync_thread->join();
+    if (_sync_thread != NULL)
+        _sync_thread->join();
 }
 
 bool CUidAgent::on_check_parameter()
