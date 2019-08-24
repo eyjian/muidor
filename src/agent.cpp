@@ -265,11 +265,13 @@ bool CUidAgent::on_init(int argc, char* argv[])
         _epoller.set_events(_udp_socket, EPOLLIN);
 
         // 从文件恢复sequence
-        if (!restore_sequence())
+        if (!restore_sequence()) {
             return false;
-
-        _sync_thread = new mooon::sys::CThreadEngine(mooon::sys::bind(&CUidAgent::sync_thread, this));
-        return true;
+        }
+        else {
+            _sync_thread = new mooon::sys::CThreadEngine(mooon::sys::bind(&CUidAgent::sync_thread, this));
+            return true;
+        }
     }
     catch (sys::CSyscallException& ex)
     {
@@ -284,7 +286,7 @@ bool CUidAgent::on_init(int argc, char* argv[])
 
 bool CUidAgent::on_run()
 {
-    while (to_stop())
+    while (!to_stop())
     {
         const int milliseconds = 10000;
         int n = _epoller.timed_wait(milliseconds);
