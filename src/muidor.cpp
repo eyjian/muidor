@@ -609,7 +609,7 @@ std::string CMuidor::get_transaction_id(const char* format, ...) const
 std::string CMuidor::vget_transaction_id(const char* format, va_list& va) const
 {
     std::vector<std::string> id_vec;
-    get_transaction_id(1, &id_vec, format, va);
+    vget_transaction_id(1, &id_vec, format, va);
 
     if (!id_vec.empty())
         return id_vec[0];
