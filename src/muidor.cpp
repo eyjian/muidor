@@ -603,7 +603,7 @@ std::string CMuidor::get_transaction_id(const char* format, ...) const
     va_start(ap, format);
     mooon::utils::VaListHelper vlh(ap);
 
-    return get_transaction_id(format, ap);
+    return vget_transaction_id(format, ap);
 }
 
 std::string CMuidor::vget_transaction_id(const char* format, va_list& va) const
@@ -623,7 +623,7 @@ void CMuidor::get_transaction_id(uint16_t num, std::vector<std::string>* id_vec,
     va_start(ap, format);
     mooon::utils::VaListHelper vlh(ap);
 
-    get_transaction_id(num, id_vec, format, ap);
+    vget_transaction_id(num, id_vec, format, ap);
 }
 
 void CMuidor::vget_transaction_id(uint16_t num, std::vector<std::string>* id_vec, const char* format, va_list& va) const
