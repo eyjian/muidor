@@ -33,6 +33,8 @@
 
 namespace muidor {
 
+struct Metric mu_metric;
+
 // 尽量避免容易碰撞的echo值
 static uint32_t get_echo(uint32_t echo)
 {
@@ -65,6 +67,31 @@ std::string label2string(uint8_t label, bool uppercase)
     label2string(label, str, uppercase);
     return str;
 }
+
+//
+// Metric
+//
+Metric::Metric()
+    : send_error(0),
+      invalid_size(0),
+      error_sockaddr(0),
+      response_error(0),
+      response_not_label(0),
+      mismatch_echo(0),
+      illegal_magic(0),
+      invalid_label(0),
+      error_sequence(0),
+      error_uniqid(0),
+      receive_timeout(0),
+      sys_exception(0),
+      exception(0),
+      retry_times(0)
+{
+}
+
+//
+// CMuidor
+//
 
 CMuidor::CMuidor(const std::string& agent_nodes, uint32_t timeout_milliseconds, uint8_t retry_times, bool polling)
     : _echo(ECHO_START),
@@ -140,6 +167,7 @@ uint8_t CMuidor::get_label() const
             int bytes = _udp_socket->send_to(&request, sizeof(request), agent_addr);
             if (bytes != sizeof(request))
             {
+                ++mu_metric.send_error;
                 THROW_SYSCALL_EXCEPTION(
                         mooon::utils::CStringUtils::format_string("[muidor][%s] invalid size", mooon::net::to_string(agent_addr).c_str()),
                         bytes, "send_to");
@@ -148,12 +176,14 @@ uint8_t CMuidor::get_label() const
             bytes = _udp_socket->timed_receive_from(response, sizeof(response_buffer), &from_addr, _timeout_milliseconds);
             if (bytes != sizeof(struct MessageHead))
             {
+                ++mu_metric.invalid_size;
                 THROW_SYSCALL_EXCEPTION(
                         mooon::utils::CStringUtils::format_string("[muidor][%s] invalid size", mooon::net::to_string(from_addr).c_str()),
                         bytes, "receive_from");
             }
             else if (memcmp(&agent_addr, &from_addr, sizeof(struct sockaddr_in)) != 0)
             {
+                ++mu_metric.error_sockaddr;
                 THROW_EXCEPTION(
                         mooon::utils::CStringUtils::format_string("[muidor][%s][AGENT:%s] unexcepted response",
                                 mooon::net::to_string(from_addr).c_str(), mooon::net::to_string(agent_addr).c_str()),
@@ -161,6 +191,7 @@ uint8_t CMuidor::get_label() const
             }
             else if (RESPONSE_ERROR == response->type)
             {
+                ++mu_metric.response_error;
                 THROW_EXCEPTION(
                         mooon::utils::CStringUtils::format_string("[muidor][%s] store sequence block error: %s",
                                 mooon::net::to_string(from_addr).c_str(), response->str().c_str()),
@@ -168,6 +199,7 @@ uint8_t CMuidor::get_label() const
             }
             else if (response->type != RESPONSE_LABEL)
             {
+                ++mu_metric.response_not_label;
                 THROW_EXCEPTION(
                         mooon::utils::CStringUtils::format_string("[muidor][%s] error response label: %s",
                                 mooon::net::to_string(from_addr).c_str(), response->str().c_str()),
@@ -175,6 +207,7 @@ uint8_t CMuidor::get_label() const
             }
             else if (response->echo.to_int() != echo)
             {
+                ++mu_metric.mismatch_echo;
                 THROW_EXCEPTION(
                         mooon::utils::CStringUtils::format_string("[muidor][%s] mismatch response label: %s|%u",
                                 mooon::net::to_string(from_addr).c_str(), response->str().c_str(), echo),
@@ -187,6 +220,7 @@ uint8_t CMuidor::get_label() const
                 //fprintf(stderr, "%s|%u\n", response->str().c_str(), magic_);
                 if (magic_ != response->magic)
                 {
+                    ++mu_metric.illegal_magic;
                     THROW_EXCEPTION(
                             mooon::utils::CStringUtils::format_string("[muidor][%s] illegal response: %s|%u",
                                     mooon::net::to_string(from_addr).c_str(), response->str().c_str(), magic_),
@@ -197,6 +231,7 @@ uint8_t CMuidor::get_label() const
                 const uint32_t label_ = response->value1.to_int();
                 if ((label_ >= 0xFF) || (label_ < 1))
                 {
+                    ++mu_metric.invalid_label;
                     THROW_EXCEPTION(
                             mooon::utils::CStringUtils::format_string("[muidor][%s] invalid label from master: %s",
                                 mooon::net::to_string(from_addr).c_str(), response->str().c_str()),
@@ -211,18 +246,37 @@ uint8_t CMuidor::get_label() const
             if ((0 == _retry_times) || (retry+1 >= _retry_times))
             {
                 if (ex.errcode() != ETIMEDOUT)
+                {
+                    ++mu_metric.sys_exception;
                     throw;
-
-                THROW_SYSCALL_EXCEPTION(
-                        mooon::utils::CStringUtils::format_string("[muidor][%s] receive timeout", mooon::net::to_string(agent_addr).c_str()),
-                        ETIMEDOUT, "timed_receive_from");
+                }
+                else
+                {
+                    ++mu_metric.receive_timeout;
+                    THROW_SYSCALL_EXCEPTION(
+                            mooon::utils::CStringUtils::format_string("[muidor][%s] receive timeout", mooon::net::to_string(agent_addr).c_str()),
+                            ETIMEDOUT, "timed_receive_from");
+                }
+            }
+            else
+            {
+                ++mu_metric.sys_exception;
+                ++mu_metric.retry_times;
             }
         }
         catch (mooon::utils::CException&)
         {
+            ++mu_metric.exception;
+
             // 在重试之前不抛出异常
             if ((0 == _retry_times) || (retry+1 >= _retry_times))
+            {
                 throw;
+            }
+            else
+            {
+                ++mu_metric.retry_times;
+            }
         }
     }
 
@@ -253,19 +307,23 @@ uint32_t CMuidor::get_unqi_seq(uint16_t num) const
             struct sockaddr_in from_addr;
             int bytes = _udp_socket->send_to(&request, sizeof(request), agent_addr);
             if (bytes != sizeof(request))
+            {
+                ++mu_metric.send_error;
                 THROW_SYSCALL_EXCEPTION(
                         mooon::utils::CStringUtils::format_string("[muidor][%s] invalid size", mooon::net::to_string(agent_addr).c_str()),
                         bytes, "send_to");
-
+            }
             bytes = _udp_socket->timed_receive_from(response, sizeof(response_buffer), &from_addr, _timeout_milliseconds);
             if (bytes != sizeof(struct MessageHead))
             {
+                ++mu_metric.invalid_size;
                 THROW_SYSCALL_EXCEPTION(
                         mooon::utils::CStringUtils::format_string("[muidor][%s] invalid size", mooon::net::to_string(from_addr).c_str()),
                         bytes, "receive_from");
             }
             else if (memcmp(&agent_addr, &from_addr, sizeof(struct sockaddr_in)) != 0)
             {
+                ++mu_metric.error_sockaddr;
                 THROW_EXCEPTION(
                         mooon::utils::CStringUtils::format_string("[muidor][%s][AGENT:%s] unexcepted response",
                                 mooon::net::to_string(from_addr).c_str(), mooon::net::to_string(agent_addr).c_str()),
@@ -273,6 +331,7 @@ uint32_t CMuidor::get_unqi_seq(uint16_t num) const
             }
             else if (RESPONSE_ERROR == response->type)
             {
+                ++mu_metric.response_error;
                 THROW_EXCEPTION(
                         mooon::utils::CStringUtils::format_string("[muidor][%s] store sequence block error: %s",
                                 mooon::net::to_string(from_addr).c_str(), response->str().c_str()),
@@ -280,6 +339,7 @@ uint32_t CMuidor::get_unqi_seq(uint16_t num) const
             }
             else if (response->type != RESPONSE_UNIQ_SEQ)
             {
+                ++mu_metric.error_sequence;
                 THROW_EXCEPTION(
                         mooon::utils::CStringUtils::format_string("[muidor][%s] error response sequence: %s",
                                 mooon::net::to_string(from_addr).c_str(), response->str().c_str()),
@@ -287,6 +347,7 @@ uint32_t CMuidor::get_unqi_seq(uint16_t num) const
             }
             else if (response->echo.to_int() != echo)
             {
+                ++mu_metric.mismatch_echo;
                 THROW_EXCEPTION(
                         mooon::utils::CStringUtils::format_string("[muidor][%s] mismatch response sequence: %s|%u",
                                 mooon::net::to_string(from_addr).c_str(), response->str().c_str(), echo),
@@ -299,6 +360,7 @@ uint32_t CMuidor::get_unqi_seq(uint16_t num) const
                 //fprintf(stderr, "%s|%u\n", response->str().c_str(), magic_);
                 if (magic_ != response->magic)
                 {
+                    ++mu_metric.illegal_magic;
                     THROW_EXCEPTION(
                             mooon::utils::CStringUtils::format_string("[muidor][%s] illegal response: %s|%u",
                                     mooon::net::to_string(from_addr).c_str(), response->str().c_str(), magic_),
@@ -314,17 +376,36 @@ uint32_t CMuidor::get_unqi_seq(uint16_t num) const
             if ((0 == _retry_times) || (retry+1 >= _retry_times))
             {
                 if (ex.errcode() != ETIMEDOUT)
+                {
+                    ++mu_metric.sys_exception;
                     throw;
-
-                THROW_SYSCALL_EXCEPTION(
-                        mooon::utils::CStringUtils::format_string("[muidor][%s] receive timeout", mooon::net::to_string(agent_addr).c_str()),
-                        ETIMEDOUT, "timed_receive_from");
+                }
+                else
+                {
+                    ++mu_metric.receive_timeout;
+                    THROW_SYSCALL_EXCEPTION(
+                            mooon::utils::CStringUtils::format_string("[muidor][%s] receive timeout", mooon::net::to_string(agent_addr).c_str()),
+                            ETIMEDOUT, "timed_receive_from");
+                }
+            }
+            else
+            {
+                ++mu_metric.sys_exception;
+                ++mu_metric.retry_times;
             }
         }
         catch (mooon::utils::CException&)
         {
+            ++mu_metric.exception;
+
             if ((0 == _retry_times) || (retry+1 >= _retry_times))
+            {
                 throw;
+            }
+            else
+            {
+                ++mu_metric.retry_times;
+            }
         }
     }
 
@@ -356,6 +437,7 @@ uint64_t CMuidor::get_uniq_id(uint8_t user, uint64_t current_seconds) const
             int bytes = _udp_socket->send_to(&request, sizeof(request), agent_addr);
             if (bytes != sizeof(request))
             {
+                ++mu_metric.send_error;
                 THROW_SYSCALL_EXCEPTION(
                         mooon::utils::CStringUtils::format_string("[muidor][%s] invalid size", mooon::net::to_string(agent_addr).c_str()),
                         bytes, "send_to");
@@ -364,12 +446,14 @@ uint64_t CMuidor::get_uniq_id(uint8_t user, uint64_t current_seconds) const
             bytes = _udp_socket->timed_receive_from(response, sizeof(response_buffer), &from_addr, _timeout_milliseconds);
             if (bytes != sizeof(struct MessageHead))
             {
+                ++mu_metric.invalid_size;
                 THROW_SYSCALL_EXCEPTION(
                         mooon::utils::CStringUtils::format_string("[muidor][%s] invalid size", mooon::net::to_string(from_addr).c_str()),
                         bytes, "receive_from");
             }
             else if (memcmp(&agent_addr, &from_addr, sizeof(struct sockaddr_in)) != 0)
             {
+                ++mu_metric.error_sockaddr;
                 THROW_EXCEPTION(
                         mooon::utils::CStringUtils::format_string("[muidor][%s][AGENT:%s] unexcepted response",
                                 mooon::net::to_string(from_addr).c_str(), mooon::net::to_string(agent_addr).c_str()),
@@ -377,6 +461,7 @@ uint64_t CMuidor::get_uniq_id(uint8_t user, uint64_t current_seconds) const
             }
             else if (RESPONSE_ERROR == response->type)
             {
+                ++mu_metric.response_error;
                 THROW_EXCEPTION(
                         mooon::utils::CStringUtils::format_string("[muidor][%s] store sequence block error: %s",
                                 mooon::net::to_string(from_addr).c_str(), response->str().c_str()),
@@ -384,6 +469,7 @@ uint64_t CMuidor::get_uniq_id(uint8_t user, uint64_t current_seconds) const
             }
             else if (response->type != RESPONSE_UNIQ_ID)
             {
+                ++mu_metric.error_uniqid;
                 THROW_EXCEPTION(
                         mooon::utils::CStringUtils::format_string("[muidor][%s] error response id: %s",
                                 mooon::net::to_string(from_addr).c_str(), response->str().c_str()),
@@ -391,6 +477,7 @@ uint64_t CMuidor::get_uniq_id(uint8_t user, uint64_t current_seconds) const
             }
             else if (response->echo.to_int() != echo)
             {
+                ++mu_metric.mismatch_echo;
                 THROW_EXCEPTION(
                         mooon::utils::CStringUtils::format_string("[muidor][%s] mismatch response id: %s|%u",
                                 mooon::net::to_string(from_addr).c_str(), response->str().c_str(), echo),
@@ -403,6 +490,7 @@ uint64_t CMuidor::get_uniq_id(uint8_t user, uint64_t current_seconds) const
                 //fprintf(stderr, "%s|%u\n", response->str().c_str(), magic_);
                 if (magic_ != response->magic)
                 {
+                    ++mu_metric.illegal_magic;
                     THROW_EXCEPTION(
                             mooon::utils::CStringUtils::format_string("[muidor][%s] illegal response: %s|%u",
                                     mooon::net::to_string(from_addr).c_str(), response->str().c_str(), magic_),
@@ -418,17 +506,36 @@ uint64_t CMuidor::get_uniq_id(uint8_t user, uint64_t current_seconds) const
             if ((0 == _retry_times) || (retry+1 >= _retry_times))
             {
                 if (ex.errcode() != ETIMEDOUT)
+                {
+                    ++mu_metric.sys_exception;
                     throw;
-
-                THROW_SYSCALL_EXCEPTION(
-                        mooon::utils::CStringUtils::format_string("[muidor][%s] receive timeout", mooon::net::to_string(agent_addr).c_str()),
-                        ETIMEDOUT, "timed_receive_from");
+                }
+                else
+                {
+                    ++mu_metric.receive_timeout;
+                    THROW_SYSCALL_EXCEPTION(
+                            mooon::utils::CStringUtils::format_string("[muidor][%s] receive timeout", mooon::net::to_string(agent_addr).c_str()),
+                            ETIMEDOUT, "timed_receive_from");
+                }
+            }
+            else
+            {
+                ++mu_metric.sys_exception;
+                ++mu_metric.retry_times;
             }
         }
         catch (mooon::utils::CException&)
         {
+            ++mu_metric.exception;
+
             if ((0 == _retry_times) || (retry+1 >= _retry_times))
+            {
                 throw;
+            }
+            else
+            {
+                ++mu_metric.retry_times;
+            }
         }
     }
 

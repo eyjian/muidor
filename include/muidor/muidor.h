@@ -22,6 +22,7 @@
 #include <mooon/utils/exception.h>
 #include <mooon/utils/string_utils.h>
 #include <stdint.h>
+#include <atomic>
 #include <vector>
 namespace muidor {
 
@@ -49,6 +50,29 @@ enum
     MUE_UNEXCEPTED = 201600011,     // 非期望的响应，响应来自非请求的Agent
     MUE_ILLEGAL = 201600012         // 非法的数据包
 };
+
+// 度量数据
+struct Metric
+{
+    std::atomic<uint32_t> send_error; // 发包错误数
+    std::atomic<uint32_t> invalid_size; // 无效包大小个数
+    std::atomic<uint32_t> error_sockaddr; // 无效的地址数
+    std::atomic<uint32_t> response_error; // 回包为 ERROR 数
+    std::atomic<uint32_t> response_not_label; // 回包不是 label 类型数
+    std::atomic<uint32_t> mismatch_echo; // 不匹配的 ECHO 数
+    std::atomic<uint32_t> illegal_magic; // 错误 magic 数
+    std::atomic<uint32_t> invalid_label; // 无效 label 数
+    std::atomic<uint32_t> error_sequence; // 错误 sequence 数
+    std::atomic<uint32_t> error_uniqid; // 错误 uniqid 数
+    std::atomic<uint32_t> receive_timeout; // 接收回包超时数
+    std::atomic<uint32_t> sys_exception; // 系统异常数
+    std::atomic<uint32_t> exception; // 异常数
+    std::atomic<uint32_t> retry_times; // 重试次数
+
+    Metric();
+};
+
+extern struct Metric mu_metric;
 
 // 64位唯一ID结构
 union UniqID
